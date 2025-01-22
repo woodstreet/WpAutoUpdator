@@ -17,6 +17,6 @@
         }
     ],
     "require": {
-        "woodstreet/wp-auto-updator": "*"
+        "woodstreet/wp-auto-updator": "dev-master"
     }
 }
