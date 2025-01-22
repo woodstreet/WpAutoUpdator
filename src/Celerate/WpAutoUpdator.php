@@ -5,13 +5,18 @@ namespace Celerate\WpAutoUpdator;
 class WpAutoUpdator
 {
     private static $pluginData;
+    private static $baseUrl;
 
     /**
      * Initialize hooks for plugin updates.
+     *
+     * @param string $pluginFilePath The main plugin file path.
+     * @param string $baseUrl        The base URL for API calls.
      */
-    public static function init($pluginFilePath)
+    public static function init($pluginFilePath, $baseUrl)
     {
         self::loadPluginData($pluginFilePath);
+        self::$baseUrl = rtrim($baseUrl, '/'); // Ensure no trailing slash
 
         add_filter('plugins_api', [__CLASS__, 'getPluginInfo'], 20, 3);
         add_filter('site_transient_update_plugins', [__CLASS__, 'checkForUpdate']);
@@ -49,7 +54,7 @@ class WpAutoUpdator
         }
 
         $remote = wp_remote_get(
-            'https://gowpupdate.gocelerate.com/api/plugin/' . $args->slug,
+            self::$baseUrl . '/api/plugin/' . $args->slug,
             [
                 'timeout' => 10,
                 'headers' => [
@@ -103,7 +108,7 @@ class WpAutoUpdator
         }
 
         $remote = wp_remote_get(
-            'https://gowpupdate.gocelerate.com/api/plugin/' . self::$pluginData['slug'],
+            self::$baseUrl . '/api/plugin/' . self::$pluginData['slug'],
             [
                 'timeout' => 10,
                 'headers' => [
