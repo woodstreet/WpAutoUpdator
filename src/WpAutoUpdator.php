@@ -18,8 +18,12 @@ class WpAutoUpdator
         self::loadPluginData($pluginFilePath);
         self::$baseUrl = rtrim($baseUrl, '/'); // Ensure no trailing slash
 
-        add_filter('plugins_api', [__CLASS__, 'getPluginInfo'], 20, 3);
-        add_filter('site_transient_update_plugins', [__CLASS__, 'checkForUpdate']);
+        add_action('plugins_loaded', function () {
+            add_filter('plugins_api', [__CLASS__, 'getPluginInfo'], 20, 3);
+            add_filter('site_transient_update_plugins', [__CLASS__, 'checkForUpdate']);
+
+            error_log('Filters registered');
+        });
     }
 
     /**
