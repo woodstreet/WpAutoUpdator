@@ -15,8 +15,5 @@
             "type": "vcs",
             "url": "https://github.com/woodstreet/wp-auto-updator"
         }
-    ],
-    "require": {
-        "woodstreet/wp-auto-updator": "master"
-    }
+    ]
 }
