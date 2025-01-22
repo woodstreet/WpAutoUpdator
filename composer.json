@@ -9,11 +9,5 @@
         {
             "name": "gocelerate.com"
         }
-    ],
-    "repositories": [
-        {
-            "type": "vcs",
-            "url": "https://github.com/woodstreet/wp-auto-updator"
-        }
     ]
 }
