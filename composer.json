@@ -1,5 +1,5 @@
 {
-    "name": "woodstreet/WpAutoUpdator",
+    "name": "woodstreet/wp-auto-updator",
     "autoload": {
         "psr-4": {
             "Celerate\\WpAutoUpdator\\": "src/"
