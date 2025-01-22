@@ -1,0 +1,13 @@
+{
+    "name": "woodstreet/WpAutoUpdator",
+    "autoload": {
+        "psr-4": {
+            "Celerate\\WpAutoUpdator\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "gocelerate.com"
+        }
+    ]
+}
