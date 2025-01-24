@@ -9,5 +9,9 @@
         {
             "name": "gocelerate.com"
         }
-    ]
+    ],
+    "require": {
+        "php": ">=7.4"
+    },
+    "license": "MIT"
 }
