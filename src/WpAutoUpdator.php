@@ -9,11 +9,12 @@ class WpAutoUpdator
 
     public function __construct($pluginFilePath, $baseUrl)
     {
-        $this->baseUrl = $baseUrl;
-        $this->loadPluginData($pluginFilePath);
-
-        add_filter('plugins_api', [$this, 'getPluginInfo'], 20, 3);
-        add_filter('site_transient_update_plugins', [$this, 'checkForUpdate']);
+        if (is_admin()) {
+            $this->baseUrl = $baseUrl;
+            $this->loadPluginData($pluginFilePath);
+            add_filter('plugins_api', [$this, 'getPluginInfo'], 20, 3);
+            add_filter('site_transient_update_plugins', [$this, 'checkForUpdate']);
+        }
     }
 
     private function loadPluginData($pluginFilePath)
