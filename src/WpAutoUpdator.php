@@ -9,12 +9,12 @@ class WpAutoUpdator
 
     public function __construct(string $pluginFilePath, string $baseUrl)
     {
-            $this->baseUrl = $baseUrl;
-            $this->loadPluginData($pluginFilePath);
+        $this->baseUrl = $baseUrl;
+        $this->loadPluginData($pluginFilePath);
 
-            add_filter('plugins_api', [$this, 'getPluginInfo'], 20, 3);
-            add_filter('site_transient_update_plugins', [$this, 'checkForUpdate']);
-        }
+        add_filter('plugins_api', [$this, 'getPluginInfo'], 20, 3);
+        add_filter('site_transient_update_plugins', [$this, 'checkForUpdate']);
+    }
 
     private function loadPluginData($pluginFilePath)
     {
@@ -69,25 +69,25 @@ class WpAutoUpdator
             return $result;
         }
 
-        $res = new \stdClass();
-        $res->name = $remote->name;
-        $res->slug = $remote->slug;
-        $res->author = $remote->author;
-        $res->author_profile = $remote->author_profile;
-        $res->version = $remote->version;
-        $res->tested = $remote->tested;
-        $res->requires = $remote->requires;
-        $res->requires_php = $remote->requires_php;
-        $res->download_link = $remote->download_url;
-        $res->trunk = $remote->download_url;
-        $res->last_updated = $remote->last_updated;
-        $res->sections = (array) $remote->sections;
+        $result                 = new \stdClass();
+        $result->name           = $remote->name;
+        $result->slug           = $remote->slug;
+        $result->author         = $remote->author;
+        $result->author_profile = $remote->author_profile;
+        $result->version        = $remote->version;
+        $result->tested         = $remote->tested;
+        $result->requires       = $remote->requires;
+        $result->requires_php   = $remote->requires_php;
+        $result->download_link  = $remote->download_url;
+        $result->trunk          = $remote->download_url;
+        $result->last_updated   = $remote->last_updated;
+        $result->sections       = (array) $remote->sections;
 
         if (!empty($remote->banners)) {
-            $res->banners = (array) $remote->banners;
+            $result->banners = (array) $remote->banners;
         }
 
-        return $res;
+        return $result;
     }
 
     public function checkForUpdate($transient)
