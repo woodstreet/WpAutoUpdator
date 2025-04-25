@@ -28,29 +28,47 @@ class WpAutoUpdator
         $this->pluginData['slug'] = dirname($this->pluginData['file_path']);
     }
 
-    public function getPluginInfo($res, $action, $args)
+    private function maybeFetchPluginData()
     {
-        if ('plugin_information' !== $action || $this->pluginData['slug'] !== $args->slug) {
-            return $res;
+        if ($cached = get_transient("cau_${this->pluginData['slug']}")) {
+            return $cached;
         }
 
         $remote = wp_remote_get(
-            "{$this->baseUrl}/api/plugin/" . $args->slug,
+            "{$this->baseUrl}/api/plugin/" . $this->pluginData['slug'],
             [
                 'timeout' => 10,
                 'headers' => ['Accept' => 'application/json'],
             ]
         );
 
-        if (
-            is_wp_error($remote) ||
-            200 !== wp_remote_retrieve_response_code($remote) ||
-            empty(wp_remote_retrieve_body($remote))
-        ) {
-            return $res;
+        if (is_wp_error($remote)) {
+            return $remote;
         }
 
-        $remote = json_decode(wp_remote_retrieve_body($remote));
+        if (wp_remote_retrieve_response_code($remote) === 200) {
+            $parsed = json_decode(wp_remote_retrieve_body($remote));
+
+            // Store the response for 2.5 minutes...
+            set_transient("cau_${this->pluginData['slug']}", $parsed, 150);
+
+            return $parsed;
+        }
+
+        return false;
+    }
+
+    public function getPluginInfo($result, $action, $args)
+    {
+        if ('plugin_information' !== $action || $this->pluginData['slug'] !== $args->slug) {
+            return $result;
+        }
+
+        $remote = $this->maybeFetchPluginData();
+
+        if (is_wp_error($remote) || $remote === false) {
+            return $result;
+        }
 
         $res = new \stdClass();
         $res->name = $remote->name;
@@ -79,36 +97,24 @@ class WpAutoUpdator
             return $transient;
         }
 
-        $remote = wp_remote_get(
-            "{$this->baseUrl}/api/plugin/" . $this->pluginData['slug'],
-            [
-                'timeout' => 10,
-                'headers' => ['Accept' => 'application/json'],
-            ]
-        );
+        $remote = $this->maybeFetchPluginData();
 
-        if (
-            is_wp_error($remote) ||
-            200 !== wp_remote_retrieve_response_code($remote) ||
-            empty(wp_remote_retrieve_body($remote))
-        ) {
+        if (is_wp_error($remote) || $remote === false) {
             return $transient;
         }
 
-        $remote_data = json_decode(wp_remote_retrieve_body($remote));
-
         if (
-            $remote_data &&
-            version_compare($this->pluginData['Version'], $remote_data->version, '<') &&
-            version_compare($remote_data->requires, get_bloginfo('version'), '<=') &&
-            version_compare($remote_data->requires_php, PHP_VERSION, '<=')
+            $remote &&
+            version_compare($this->pluginData['Version'], $remote->version, '<') &&
+            version_compare($remote->requires, get_bloginfo('version'), '<=') &&
+            version_compare($remote->requires_php, PHP_VERSION, '<=')
         ) {
             $plugin_update = new \stdClass();
-            $plugin_update->slug = $remote_data->slug;
+            $plugin_update->slug = $remote->slug;
             $plugin_update->plugin = $this->pluginData['file_path'];
-            $plugin_update->new_version = $remote_data->version;
-            $plugin_update->tested = $remote_data->tested;
-            $plugin_update->package = $remote_data->download_url;
+            $plugin_update->new_version = $remote->version;
+            $plugin_update->tested = $remote->tested;
+            $plugin_update->package = $remote->download_url;
 
             $transient->response[$plugin_update->plugin] = $plugin_update;
         }
