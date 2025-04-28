@@ -4,32 +4,43 @@ namespace Celerate\WpAutoUpdator;
 
 class WpAutoUpdator
 {
+    private string $path;
     private array $pluginData;
     private string $baseUrl;
 
     public function __construct(string $pluginFilePath, string $baseUrl)
     {
+        $this->path = $pluginFilePath;
         $this->baseUrl = $baseUrl;
-        $this->loadPluginData($pluginFilePath);
 
         add_filter('plugins_api', [$this, 'getPluginInfo'], 20, 3);
         add_filter('site_transient_update_plugins', [$this, 'checkForUpdate']);
     }
 
-    private function loadPluginData($pluginFilePath)
+    private function lazyLoadPluginData(): void
+    {
+        $this->pluginData ??= $this->loadPluginData();
+    }
+
+    private function loadPluginData(): array
     {
         if (!function_exists('get_plugin_data')) {
             require_once ABSPATH . 'wp-admin/includes/plugin.php';
         }
 
-        $this->pluginData = get_plugin_data($pluginFilePath);
-        $this->pluginData['file_path'] = plugin_basename($pluginFilePath);
-        $this->pluginData['slug'] = dirname($this->pluginData['file_path']);
+        $data = get_plugin_data($this->path);
+        $data['file_path'] = plugin_basename($this->path);
+        $data['slug'] = dirname($data['file_path']);
+
+        return $data;
     }
 
     private function maybeFetchPluginData()
     {
-        if ($cached = get_transient("cau_${this->pluginData['slug']}")) {
+        if ($cached = get_transient("cau_{$this->pluginData['slug']}")) {
+            // Freshen the version info
+            $cached->version = $this->pluginData['Version'];
+
             return $cached;
         }
 
@@ -48,10 +59,33 @@ class WpAutoUpdator
         if (wp_remote_retrieve_response_code($remote) === 200) {
             $parsed = json_decode(wp_remote_retrieve_body($remote));
 
-            // Store the response for 2.5 minutes...
-            set_transient("cau_${this->pluginData['slug']}", $parsed, 150);
+            // Match to WP schema
+            $result                 = new \stdClass();
+            $result->name           = $parsed->name;
+            $result->slug           = $parsed->slug;
+            $result->author         = $parsed->author;
+            $result->author_profile = $parsed->author_profile;
+            // The new version comes from the server response.
+            $result->new_version    = $parsed->version;
+            // The current/old version comes from the parsed plugin data.
+            $result->version        = $this->pluginData['Version'];
+            $result->tested         = $parsed->tested;
+            $result->requires       = $parsed->requires;
+            $result->requires_php   = $parsed->requires_php;
+            $result->download_link  = $parsed->download_url;
+            $result->trunk          = $parsed->download_url;
+            $result->package        = $parsed->download_url;
+            $result->last_updated   = $parsed->last_updated;
+            $result->sections       = (array) $parsed->sections;
 
-            return $parsed;
+            if (!empty($parsed->banners)) {
+                $result->banners = (array) $parsed->banners;
+            }
+
+            // Store the response for 2.5 minutes...
+            set_transient("cau_{$this->pluginData['slug']}", $result, 150);
+
+            return $result;
         }
 
         return false;
@@ -59,63 +93,37 @@ class WpAutoUpdator
 
     public function getPluginInfo($result, $action, $args)
     {
-        if ('plugin_information' !== $action || $this->pluginData['slug'] !== $args->slug) {
+        $this->lazyLoadPluginData();
+
+        if ('plugin_information' !== $action || strcasecmp($this->pluginData['slug'], $args->slug) !== 0) {
             return $result;
         }
 
         $remote = $this->maybeFetchPluginData();
 
-        if (is_wp_error($remote) || $remote === false) {
+        if ($remote === false || is_wp_error($remote)) {
             return $result;
         }
 
-        $result                 = new \stdClass();
-        $result->name           = $remote->name;
-        $result->slug           = $remote->slug;
-        $result->author         = $remote->author;
-        $result->author_profile = $remote->author_profile;
-        $result->version        = $remote->version;
-        $result->tested         = $remote->tested;
-        $result->requires       = $remote->requires;
-        $result->requires_php   = $remote->requires_php;
-        $result->download_link  = $remote->download_url;
-        $result->trunk          = $remote->download_url;
-        $result->last_updated   = $remote->last_updated;
-        $result->sections       = (array) $remote->sections;
-
-        if (!empty($remote->banners)) {
-            $result->banners = (array) $remote->banners;
-        }
-
-        return $result;
+        return $remote;
     }
 
     public function checkForUpdate($transient)
     {
-        if (empty($transient->checked)) {
+        $this->lazyLoadPluginData();
+
+        if (!empty($transient->response[$this->pluginData['file_path']])) {
             return $transient;
         }
 
         $remote = $this->maybeFetchPluginData();
 
-        if (is_wp_error($remote) || $remote === false) {
+        if ($remote === false || is_wp_error($remote)) {
             return $transient;
         }
 
-        if (
-            $remote &&
-            version_compare($this->pluginData['Version'], $remote->version, '<') &&
-            version_compare($remote->requires, get_bloginfo('version'), '<=') &&
-            version_compare($remote->requires_php, PHP_VERSION, '<=')
-        ) {
-            $plugin_update = new \stdClass();
-            $plugin_update->slug = $remote->slug;
-            $plugin_update->plugin = $this->pluginData['file_path'];
-            $plugin_update->new_version = $remote->version;
-            $plugin_update->tested = $remote->tested;
-            $plugin_update->package = $remote->download_url;
-
-            $transient->response[$plugin_update->plugin] = $plugin_update;
+        if ($remote) {
+            $transient->response[$this->pluginData['file_path']] = $remote;
         }
 
         return $transient;
