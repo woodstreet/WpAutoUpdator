@@ -4,79 +4,44 @@ namespace Celerate\WpAutoUpdator;
 
 class WpAutoUpdator
 {
-    private $pluginData;
-    private $baseUrl;
+    private string $path;
+    private array $pluginData;
+    private string $baseUrl;
 
-    public function __construct($pluginFilePath, $baseUrl)
+    public function __construct(string $pluginFilePath, string $baseUrl)
     {
-        if (is_admin()) {
-            $this->baseUrl = $baseUrl;
-            $this->loadPluginData($pluginFilePath);
-            add_filter('plugins_api', [$this, 'getPluginInfo'], 20, 3);
-            add_filter('site_transient_update_plugins', [$this, 'checkForUpdate']);
-        }
+        $this->path = $pluginFilePath;
+        $this->baseUrl = $baseUrl;
+
+        add_filter('plugins_api', [$this, 'getPluginInfo'], 20, 3);
+        add_filter('site_transient_update_plugins', [$this, 'checkForUpdate']);
     }
 
-    private function loadPluginData($pluginFilePath)
+    private function lazyLoadPluginData(): void
+    {
+        $this->pluginData ??= $this->loadPluginData();
+    }
+
+    private function loadPluginData(): array
     {
         if (!function_exists('get_plugin_data')) {
             require_once ABSPATH . 'wp-admin/includes/plugin.php';
         }
 
-        $this->pluginData = get_plugin_data($pluginFilePath);
-        $this->pluginData['file_path'] = plugin_basename($pluginFilePath);
-        $this->pluginData['slug'] = dirname($this->pluginData['file_path']);
+        $data = get_plugin_data($this->path);
+        $data['file_path'] = plugin_basename($this->path);
+        $data['slug'] = dirname($data['file_path']);
+
+        return $data;
     }
 
-    public function getPluginInfo($res, $action, $args)
+    private function maybeFetchPluginData()
     {
-        if ('plugin_information' !== $action || $this->pluginData['slug'] !== $args->slug) {
-            return $res;
-        }
+        if ($cached = get_transient("cau_{$this->pluginData['slug']}")) {
+            // Freshen the version info
+            $cached->version = $this->pluginData['Version'];
 
-        $remote = wp_remote_get(
-            "{$this->baseUrl}/api/plugin/" . $args->slug,
-            [
-                'timeout' => 10,
-                'headers' => ['Accept' => 'application/json'],
-            ]
-        );
-
-        if (
-            is_wp_error($remote) ||
-            200 !== wp_remote_retrieve_response_code($remote) ||
-            empty(wp_remote_retrieve_body($remote))
-        ) {
-            return $res;
-        }
-
-        $remote = json_decode(wp_remote_retrieve_body($remote));
-
-        $res = new \stdClass();
-        $res->name = $remote->name;
-        $res->slug = $remote->slug;
-        $res->author = $remote->author;
-        $res->author_profile = $remote->author_profile;
-        $res->version = $remote->version;
-        $res->tested = $remote->tested;
-        $res->requires = $remote->requires;
-        $res->requires_php = $remote->requires_php;
-        $res->download_link = $remote->download_url;
-        $res->trunk = $remote->download_url;
-        $res->last_updated = $remote->last_updated;
-        $res->sections = (array) $remote->sections;
-
-        if (!empty($remote->banners)) {
-            $res->banners = (array) $remote->banners;
-        }
-
-        return $res;
-    }
-
-    public function checkForUpdate($transient)
-    {
-        if (empty($transient->checked)) {
-            return $transient;
+            return $cached;
         }
 
         $remote = wp_remote_get(
@@ -87,30 +52,78 @@ class WpAutoUpdator
             ]
         );
 
-        if (
-            is_wp_error($remote) ||
-            200 !== wp_remote_retrieve_response_code($remote) ||
-            empty(wp_remote_retrieve_body($remote))
-        ) {
+        if (is_wp_error($remote)) {
+            return $remote;
+        }
+
+        if (wp_remote_retrieve_response_code($remote) === 200) {
+            $parsed = json_decode(wp_remote_retrieve_body($remote));
+
+            // Match to WP schema
+            $result                 = new \stdClass();
+            $result->name           = $parsed->name;
+            $result->slug           = $parsed->slug;
+            $result->author         = $parsed->author;
+            $result->author_profile = $parsed->author_profile;
+            // The new version comes from the server response.
+            $result->new_version    = $parsed->version;
+            // The current/old version comes from the parsed plugin data.
+            $result->version        = $this->pluginData['Version'];
+            $result->tested         = $parsed->tested;
+            $result->requires       = $parsed->requires;
+            $result->requires_php   = $parsed->requires_php;
+            $result->download_link  = $parsed->download_url;
+            $result->trunk          = $parsed->download_url;
+            $result->package        = $parsed->download_url;
+            $result->last_updated   = $parsed->last_updated;
+            $result->sections       = (array) $parsed->sections;
+
+            if (!empty($parsed->banners)) {
+                $result->banners = (array) $parsed->banners;
+            }
+
+            // Store the response for 2.5 minutes...
+            set_transient("cau_{$this->pluginData['slug']}", $result, 150);
+
+            return $result;
+        }
+
+        return false;
+    }
+
+    public function getPluginInfo($result, $action, $args)
+    {
+        $this->lazyLoadPluginData();
+
+        if ('plugin_information' !== $action || strcasecmp($this->pluginData['slug'], $args->slug) !== 0) {
+            return $result;
+        }
+
+        $remote = $this->maybeFetchPluginData();
+
+        if ($remote === false || is_wp_error($remote)) {
+            return $result;
+        }
+
+        return $remote;
+    }
+
+    public function checkForUpdate($transient)
+    {
+        $this->lazyLoadPluginData();
+
+        if (!empty($transient->response[$this->pluginData['file_path']])) {
             return $transient;
         }
 
-        $remote_data = json_decode(wp_remote_retrieve_body($remote));
+        $remote = $this->maybeFetchPluginData();
 
-        if (
-            $remote_data &&
-            version_compare($this->pluginData['Version'], $remote_data->version, '<') &&
-            version_compare($remote_data->requires, get_bloginfo('version'), '<=') &&
-            version_compare($remote_data->requires_php, PHP_VERSION, '<=')
-        ) {
-            $plugin_update = new \stdClass();
-            $plugin_update->slug = $remote_data->slug;
-            $plugin_update->plugin = $this->pluginData['file_path'];
-            $plugin_update->new_version = $remote_data->version;
-            $plugin_update->tested = $remote_data->tested;
-            $plugin_update->package = $remote_data->download_url;
+        if ($remote === false || is_wp_error($remote)) {
+            return $transient;
+        }
 
-            $transient->response[$plugin_update->plugin] = $plugin_update;
+        if ($remote) {
+            $transient->response[$this->pluginData['file_path']] = $remote;
         }
 
         return $transient;
