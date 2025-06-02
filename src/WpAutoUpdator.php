@@ -112,6 +112,9 @@ class WpAutoUpdator
     {
         $this->lazyLoadPluginData();
 
+        if ( ! is_object( $transient ) )
+			return $transient;
+
         if (!empty($transient->response[$this->pluginData['file_path']])) {
             return $transient;
         }
